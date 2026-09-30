@@ -1,0 +1,302 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue!50!black, urlcolor=blue!50!black}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+% Boîtes légères (xcolor seulement, portables)
+\newenvironment{say}{\par\medskip\noindent\textcolor{blue!45!black}{\rule[-1pt]{3pt}{12pt}}\
+  \textbf{\textcolor{blue!45!black}{À dire}}\par\nopagebreak\smallskip\noindent\ignorespaces}{\par\medskip}
+\newenvironment{why}{\par\medskip\noindent\textcolor{orange!60!black}{\rule[-1pt]{3pt}{12pt}}\
+  \textbf{\textcolor{orange!60!black}{Pourquoi ce choix}}\par\nopagebreak\smallskip\noindent\ignorespaces}{\par\medskip}
+\newenvironment{qa}{\par\medskip\noindent\textcolor{gray!55!black}{\rule[-1pt]{3pt}{12pt}}\
+  \textbf{\textcolor{gray!55!black}{Questions probables}}\par\nopagebreak\smallskip\noindent\ignorespaces}{\par\medskip}
+
+\title{\textbf{Absentéisme au travail : séries temporelles \& classification}\\[2mm]
+\large Notes pour l'oral --- Time Series Analysis}
+\author{Groupe : \underline{\hspace{4cm}} \quad / \quad \underline{\hspace{4cm}}}
+\date{Soutenance --- juin 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Document de préparation à l'oral. Il résume le notebook \code{main.ipynb}, justifie chaque
+choix de modèle / fonction, indique \textbf{qui dit quoi} (2 présentateurs) et anticipe les
+questions du jury. Couleurs : \colorbox{blue!8}{bleu = à dire}, \colorbox{orange!10}{orange =
+justification}, \colorbox{gray!10}{gris = Q/R}.
+\end{abstract}
+
+%==================================================================
+\section{Contexte et problématique}
+
+\begin{say}
+Jeu de données \textbf{Absenteeism at Work} (UCI \#445) : 740 enregistrements d'absences chez
+un transporteur brésilien (2007--2010), 21 variables (motif médical, jour, charge de travail,
+distance, profil de l'employé\dots) et une cible : \emph{heures d'absence}.
+
+Deux questions :
+\begin{enumerate}[nosep]
+  \item \textbf{Prévision} : peut-on anticiper le volume mensuel d'heures d'absence (planification RH) ?
+  \item \textbf{Explication} : peut-on prédire qu'une absence sera \emph{longue} (> 8 h) à partir de ses caractéristiques ?
+\end{enumerate}
+\end{say}
+
+%==================================================================
+\section{Répartition orale (2 présentateurs)}
+
+\begin{center}
+\begin{tabular}{@{}p{1.3cm}p{8.4cm}p{2.6cm}@{}}
+\toprule
+& \textbf{Contenu} & \textbf{Durée indic.} \\
+\midrule
+\textbf{P1} & Intro + problématique, \S2 \emph{Analyse qualitative}, \S3 \emph{Forecasting} (partie séries temporelles) & $\approx$ 6--7 min \\
+\textbf{P2} & \S4 \emph{Effet du jour}, \S5 \emph{Classification}, conclusion \& perspectives (partie explicative) & $\approx$ 6--7 min \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\emph{Découpage naturel « séries temporelles / apprentissage explicatif ». Chacun doit
+aussi pouvoir répondre sur la partie de l'autre (cf. grille).}
+
+%==================================================================
+\section{Couverture de la grille de compétences}
+
+\begin{center}
+\begin{tabular}{@{}p{5.2cm}p{6.4cm}p{2.4cm}@{}}
+\toprule
+\textbf{Compétence (AAV)} & \textbf{Où / comment} & \textbf{Présent.} \\
+\midrule
+Étude statistique qualitative (description, graphiques) & \code{describe}, séries, moyenne mobile, sous-séries annuelles & P1 \\
+Étude heuristique (stationnarité, saisonnalité, tendance) & Décomposition additive/multiplicative + STL, ADF+KPSS, différenciation, ACF/PACF & P1 \\
+Forecasting : choix \& justification & Baselines, AR(p), MA(q), ARIMA(p,d,q), sélection AIC/BIC & P1 \\
+Forecasting : mise en œuvre & Split chronologique, estimation OLS/MLE, préprocessing \code{d=0} justifié & P1 \\
+Forecasting : évaluation/critique & MAE/RMSE vs baselines, Ljung-Box (résidus), limites & P1 \\
+Forecasting : présentation & Prévision test + IC 95\,\%, prévision 12 mois & P1 \\
+Classification : choix \& justification & Dummy / LogReg / Random Forest, métriques adaptées au déséquilibre & P2 \\
+Classification : mise en œuvre & Pipeline \code{ColumnTransformer}, CV 5-fold stratifiée, \code{class\_weight} & P2 \\
+Classification : évaluation/critique & ROC/PR-AUC/F1, matrice de confusion, importances, limites & P2 \\
+Problématique \& recontextualisation & Intro + conclusion (RH) & P1 / P2 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%==================================================================
+\section*{\textcolor{blue!50!black}{PRÉSENTATEUR 1 --- Séries temporelles}}
+\addcontentsline{toc}{section}{Présentateur 1}
+
+\subsection{Construction de la série (\S2)}
+\begin{say}
+Le dataset n'a \textbf{pas de colonne date}, mais les lignes sont ordonnées chronologiquement.
+On reconstruit un index mensuel (on incrémente l'année quand le mois « repart en arrière »),
+puis on \textbf{agrège le total d'heures par mois} : série mensuelle de \textbf{37 points}
+(juil.~2007 $\to$ juil.~2010).
+\end{say}
+\begin{why}
+Somme (et non moyenne) par mois car la quantité d'intérêt RH est le \emph{volume} total d'heures
+perdues. \code{asfreq('MS')} fixe une fréquence mensuelle régulière, indispensable aux outils TSA.
+\end{why}
+
+\subsection{Description et tendance}
+\begin{say}
+\code{describe} (min/max/moyenne), tracé de la série brute, puis \textbf{moyenne mobile} centrée
+(fenêtres 3 et 12 mois) et \textbf{sous-séries annuelles} (une courbe par année).
+\end{say}
+\begin{why}
+Moyenne mobile (Ch.3) : moyenner sur \emph{un cycle complet} (12 mois) annule la composante
+saisonnière et fait ressortir la tendance ; la fenêtre 3 mois garde le détail trimestriel.
+\end{why}
+
+\subsection{Décomposition saisonnière}
+\begin{say}
+Décomposition \textbf{additive} ($X=T+S+R$) et \textbf{multiplicative} ($X=T\cdot S\cdot R$) via
+\code{seasonal\_decompose}, puis \textbf{STL} (Loess).
+\end{say}
+\begin{why}
+Additif si l'amplitude saisonnière est stable ; multiplicatif si elle croît avec le niveau.
+\textbf{STL} (Ch.3) lisse par régressions locales (Loess) et l'option \code{robust=True} réduit
+l'influence des pics (ex.\ COVID) : trend plus propre que la moyenne mobile.
+\end{why}
+
+\subsection{Stationnarité}
+\begin{say}
+Moyenne / écart-type mobiles (12 mois) + deux tests : \textbf{ADF} ($H_0$ : racine unitaire) et
+\textbf{KPSS} ($H_0$ : stationnaire). Résultats : \textbf{ADF $p=0{,}000$} et \textbf{KPSS
+$p=0{,}100$} $\Rightarrow$ la série est \textbf{stationnaire}.
+\end{say}
+\begin{why}
+On utilise les \emph{deux} tests ensemble (Ch.3) car ils ont des hypothèses \textbf{opposées} :
+l'accord (ADF rejette \emph{et} KPSS ne rejette pas) est bien plus convaincant qu'un seul test.
+Conséquence directe : \textbf{ordre d'intégration $d=0$}.
+\end{why}
+
+\subsection{Différenciation et ACF/PACF}
+\begin{say}
+On montre quand même la différenciation $\nabla = (1-B)$ et on retrace ADF/KPSS, puis l'ACF et la
+PACF (brute vs différenciée).
+\end{say}
+\begin{why}
+$\nabla$ (Ch.3) retirerait une tendance, mais la série étant déjà stationnaire, différencier
+serait de la \textbf{sur-différenciation}. L'ACF décroît vite et il n'y a \textbf{pas de pic au
+lag 12} $\Rightarrow$ pas de saisonnalité annuelle marquée (justifie l'absence de SARIMA).
+\end{why}
+
+\subsection{Forecasting (\S3)}
+\begin{say}
+Cadre : un bon modèle laisse un résidu = \textbf{bruit blanc}. Découpage \textbf{chronologique}
+train/test = \textbf{28 / 9 mois}. Métriques \textbf{MAE} et \textbf{RMSE}. On compare, du plus
+simple au plus riche :
+\begin{itemize}[nosep]
+  \item \textbf{Baselines} : moyenne (RMSE 98{,}5), naïf (114{,}1), naïf saisonnier (108{,}3).
+  \item \textbf{AR(2) par OLS} (recette Ch.2) : \textbf{RMSE 95{,}9} --- le meilleur.
+  \item \textbf{MA(2)} et \textbf{ARIMA(0,0,2)} par MLE : RMSE 97{,}7.
+\end{itemize}
+\end{say}
+\begin{why}
+\textbf{Split chronologique} (et non aléatoire) : on prédit le futur à partir du passé, sinon
+fuite temporelle. \textbf{AR(p)} suit littéralement les \emph{Steps 1--3} du Ch.2 : (1) $p$ = dernier
+lag significatif de la \textbf{PACF} $\Rightarrow p=2$ ; (2) matrice de retards ; (3) régression
+\textbf{OLS} pour $\Phi(B)$ ($\Phi\approx[-0{,}54;\ 0{,}05]$) --- « un AR pur s'estime par OLS ».
+\textbf{MA(q)} : $q$ lu sur la \emph{coupure} de l'ACF. \textbf{ARIMA(p,d,q)} : grille balayée,
+ordre retenu par \textbf{BIC} (plus parcimonieux et cohérent que l'AIC) ; ici $d=0$ donc ARIMA
+$=$ ARMA. MA/ARMA s'estiment par \textbf{MLE (Kalman)}, contrairement à l'AR.
+\end{why}
+\begin{say}
+\textbf{Diagnostic} : ACF des résidus plate + \textbf{Ljung-Box} $p=0{,}94$ (lag 6) et $0{,}87$
+(lag 12) $\Rightarrow$ résidus compatibles avec un \textbf{bruit blanc}. On présente la prévision
+sur le test avec \textbf{IC 95\,\%} puis une prévision \textbf{12 mois} sur série complète.
+\end{say}
+\begin{why}
+\textbf{Conclusion \S3 à assumer} : les modèles ne battent que \emph{marginalement} la baseline
+(95{,}9 vs 98{,}5) et les résidus sont \emph{déjà} du bruit blanc $\Rightarrow$ la série mensuelle
+(37 points) porte \textbf{peu de dynamique exploitable}. C'est un \emph{résultat}, pas un échec :
+il justifie le pivot vers l'approche explicative (P2).
+\end{why}
+
+%==================================================================
+\section*{\textcolor{blue!50!black}{PRÉSENTATEUR 2 --- Analyse explicative}}
+\addcontentsline{toc}{section}{Présentateur 2}
+
+\subsection{Effet du jour de la semaine (\S4)}
+\begin{say}
+On change d'angle : le \code{Day of the week} est la seule dimension temporelle fine fiable.
+Statistiques par jour : \textbf{lundi} le plus lourd (9{,}2 h en moyenne), \textbf{jeudi} le plus
+léger (4{,}4 h). Tests : \textbf{Kruskal-Wallis} $H=10{,}7,\ p=0{,}030$ (les heures dépendent du
+jour) ; \textbf{$\chi^2$} d'indépendance jour $\times$ « absence longue » : $\chi^2=11{,}52$,
+ddl 4, $p=0{,}021$ (dépendance significative).
+\end{say}
+\begin{why}
+\textbf{Kruskal-Wallis} (non paramétrique) plutôt qu'une ANOVA : la durée d'absence est très
+\textbf{asymétrique} (non gaussienne), Kruskal ne suppose pas la normalité. \textbf{$\chi^2$} :
+adapté à deux variables \emph{catégorielles} (jour $\times$ binaire). But : montrer que le jour est
+un \textbf{prédicteur pertinent} avant la classification.
+\end{why}
+
+\subsection{Classification : prédire une absence longue (\S5)}
+\begin{say}
+Cible binaire \code{absence\_longue} = (durée > 8 h). Classe \textbf{rare} : \textbf{63/737 =
+8{,}5\,\%}. On évalue par \textbf{ROC-AUC}, \textbf{PR-AUC} et \textbf{F1} --- \textbf{pas
+l'accuracy}.
+\end{say}
+\begin{why}
+Avec 8{,}5\,\% de positifs, un modèle qui dit toujours « non » a déjà 91{,}5\,\% d'accuracy : la
+métrique serait trompeuse. \textbf{PR-AUC} et \textbf{F1} sont pertinentes pour les classes rares ;
+\textbf{ROC-AUC} mesure le pouvoir de séparation indépendamment du seuil.
+\end{why}
+\begin{say}
+\textbf{Préprocessing} : \code{ColumnTransformer} --- one-hot pour les catégorielles (motif, jour,
+saison, éducation), standardisation pour les numériques (charge, distance, âge\dots), binaires
+laissées telles quelles. Le tout dans un \code{Pipeline}. \textbf{Modèles} : Dummy (baseline),
+\textbf{Régression logistique}, \textbf{Random Forest}, avec \code{class\_weight='balanced'}.
+Évaluation par \textbf{CV 5-fold stratifiée}.
+\end{say}
+\begin{why}
+\textbf{Pipeline} : préprocessing appris \emph{dans} la CV $\Rightarrow$ pas de \emph{fuite de
+données}. \textbf{Standardisation} utile à la régression logistique (échelles comparables) ;
+\textbf{one-hot} car les codes (motif, jour) sont catégoriels, pas ordinaux.
+\code{class\_weight='balanced'} compense le déséquilibre. \textbf{CV stratifiée} : conserve les
+8{,}5\,\% de positifs dans chaque pli, plus robuste qu'un seul split vu le faible nombre de positifs.
+\end{why}
+\begin{say}
+\textbf{Résultats} (CV ROC-AUC) : Random Forest \textbf{0{,}84}, Régression logistique
+\textbf{0{,}81}, baseline 0{,}50. Sur le \emph{test}, scores plus bas (RF 0{,}75) car seulement
+$\sim$16 positifs $\Rightarrow$ forte variance : \textbf{la CV est la mesure fiable}. Variables
+les plus discriminantes : \textbf{motif} d'absence et \textbf{charge de travail} ; le jour de la
+semaine pèse $\approx$ \textbf{10\,\%} (confirme le \S4, en facteur secondaire).
+\end{say}
+
+\subsection{Conclusion générale \& perspectives}
+\begin{say}
+\textbf{Recontextualisation RH} : (1) la prévision mensuelle agrégée est peu fiable (série $\approx$
+bruit) $\Rightarrow$ ne pas surinvestir dans un modèle ARIMA pour le pilotage ; (2) en revanche on
+\emph{explique} les absences longues (motif, charge, lundi) $\Rightarrow$ leviers concrets
+(lissage de charge, vigilance lundi). \textbf{Limites} : 37 points pour la série, classe rare en
+classification. \textbf{Pistes} : rééchantillonnage (SMOTE) / ajustement du seuil, gradient
+boosting, exploitation de l'historique par employé (\code{ID}).
+\end{say}
+
+%==================================================================
+\section{Questions probables du jury (Q/R)}
+
+\begin{qa}
+\textbf{Pourquoi $d=0$ dans l'ARIMA ?} La série est stationnaire (ADF $p=0{,}000$ \emph{et} KPSS
+$p=0{,}100$) ; différencier serait de la sur-différenciation. ARIMA(p,0,q) $=$ ARMA(p,q).
+
+\textbf{Pourquoi pas de SARIMA ?} Pas de pic d'ACF aux lags 12, 24 $\Rightarrow$ pas de
+saisonnalité annuelle nette à modéliser ; on l'écarte de façon justifiée.
+
+\textbf{AR par OLS, est-ce correct ?} Oui : pour un AR \emph{pur}, l'estimation OLS sur la matrice
+de retards est valide (le cours le dit). MA/ARMA, eux, exigent une MLE (Kalman). Nuance : notre OLS
+inclut une constante (la série n'est pas centrée en 0), ce qui n'apparaît pas dans la formule
+« nue » de la slide mais capte la moyenne.
+
+\textbf{ACF vs PACF ?} ACF = corrélation avec le retard $h$ (sert à lire $q$ d'un MA, qui coupe à
+$q$). PACF = corrélation \emph{directe} au retard $h$, effets intermédiaires retirés (sert à lire
+$p$ d'un AR, qui coupe à $p$).
+
+\textbf{AIC ou BIC ?} On choisit par BIC (pénalité $(p+q)\ln T$, plus forte) : plus parcimonieux et
+\emph{consistant} (retrouve le vrai ordre asymptotiquement) ; l'AIC sur-ajuste en petit échantillon.
+
+\textbf{Qu'est-ce qu'un bruit blanc et pourquoi Ljung-Box ?} Bruit blanc : moyenne nulle, variance
+constante, non corrélé ($\rho(h)=\mathbf{1}_{h=0}$). Si les résidus en sont un, le modèle a capté
+toute la structure. Ljung-Box teste l'absence d'autocorrélation jusqu'au lag $k$ ($p>0{,}05$ = OK).
+
+\textbf{Split chronologique, pourquoi ?} Un split aléatoire utiliserait le futur pour prédire le
+passé (fuite) ; en série temporelle on entraîne sur le passé, on teste sur le futur.
+
+\textbf{Additif ou multiplicatif ?} Additif si l'amplitude saisonnière est stable, multiplicatif si
+elle croît avec le niveau (souvent réglé en passant au log). On montre les deux.
+
+\textbf{Pourquoi pas l'accuracy en classification ?} Classe à 8{,}5\,\% : « toujours négatif » fait
+91{,}5\,\% d'accuracy sans rien prédire. D'où ROC-AUC / PR-AUC / F1.
+
+\textbf{Pourquoi la CV plutôt que le test ?} $\sim$16 positifs en test $\Rightarrow$ score très
+variable ; la CV 5-fold stratifiée moyenne sur plusieurs découpes, plus fiable.
+
+\textbf{Risque de fuite de données ?} Non : préprocessing (one-hot, scaler) encapsulé dans le
+\code{Pipeline}, donc ré-appris sur chaque pli d'entraînement uniquement.
+
+\textbf{Le motif ne prédit-il pas « mécaniquement » la durée ?} En partie : certains motifs sont
+quasi-déterministes. La vraie valeur ajoutée du modèle est sur les cas ambigus ; à mentionner comme
+limite.
+\end{qa}
+
+%==================================================================
+\section{Conseils de présentation}
+\begin{itemize}[nosep]
+  \item \textbf{Temps} : viser 12--14 min à deux, garder 1 figure forte par section (série + décomposition ; recap des scores ; ROC + importances).
+  \item \textbf{Transitions} : P1 termine sur « la série est $\approx$ un bruit blanc » $\Rightarrow$ P2 enchaîne « donc on explique plutôt que prédire ».
+  \item \textbf{Chiffres à retenir} : 37 points ; ADF 0{,}000 / KPSS 0{,}100 ; AR(2) RMSE 95{,}9 ; 8{,}5\,\% de positifs ; CV ROC-AUC 0{,}84.
+  \item \textbf{Niveau de langage} : dire « stationnaire », « autocorrélation », « parcimonie », « déséquilibre de classes » ; éviter le familier.
+\end{itemize}
+
+\end{document}

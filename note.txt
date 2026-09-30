@@ -1,0 +1,163 @@
+- Tendance par moyenne mobile
+    - MM centree d'ordre s, s ici egal a 3 12 etc... c'est la periode de calcul 
+    - MM sur 12 mois -> lisse le cycle
+    - MM sur 3 mois -> pour le detail
+
+- Decomposition saisonniere
+    - Additive (X=T+S+R) par MM
+    - Multiplicative (X=T*S*R) par MM
+    - STL (Loess)
+    On utilise seasonal_decompose :
+        - T[t] (Tendance) : évolution générale long-terme
+        - S[t] (Saisonnalité) : variation périodique répétitive
+        - e[t] (Erreur/Résidu) : bruit aléatoire inexpliqué
+    Donc pour l'additif on voit que la saisonnalité a une amplitude de ~±50 à 75 h. Mais cette amplitude est du même ordre que les résidus (±50-70) Donc la saison ne domine pas le bruit. 
+
+    Pour le multiplicative on a le mm effet de tendance :
+        le facteur saisonnier oscille entre ~0,6 et 1,55 : certains mois ~55 % au-dessus du niveau local, d'autres ~40 % en dessous. Même forme répétée. Conclusion identique : un effet visible mais pas écrasant.
+
+    -STL:
+     Pour l'additif et le multiplicative la tendance est creuse alors que pour le STL une droite lineaire apparait, donc les 2 methodes ne sont pas d'accord sur la tendance d'un dataset
+     On peut conclure que le profil saisonnier n'est pas stable ici, on a une saisonnalite faible et incertaine
+     Un des problemes ici c'est les donnees d'entrainenemt sur 3 cycles chacun de 12 mois c'est trop peu fiable
+
+     Donc ici la saisonnalité n'est pas assez robuste pour être modélisée (et donc que SARIMA n'est pas justifié a priori).
+
+- Stationnarite
+    
+    !!!!! tests statistiques (des algorithmes qui calculent une statistique puis une p-value)
+
+    Avant de modéliser avec un ARMA/ARIMA, il faut une série stationnaire : moyenne, variance et autocorrélation stables dans le temps. Sinon le modèle n'est pas valide.
+    ADF p = 0,000 → on rejette H0 → pas de racine unitaire. 
+    KPSS p = 0,100 → on ne rejette pas H0 → compatible avec la stationnarité. 
+    Les deux concordent → la série est stationnaire.
+    Donc l'ordre d'intégration est d = 0 : pas besoin de différencier, ce qui guide directement le choix ARIMA(p, 0, q)
+
+- Differenciation
+
+
+    Sur ton ACF brute : à part le lag 0 (toujours = 1, la série corrélée avec elle-même), toutes les barres restent dans la bande → aucune autocorrélation significative → la série se comporte comme un bruit blanc
+
+    Un critère d'information (AIC, BIC) mesure la qualité d'ajustement du modèle aux données
+
+    l'intervalle de confiance
+
+    On calcul la variation mois a mois X_t − X_{t−1}. On oscille autour de 0 ici
+    ADF et KPSS la déclarent toujours stationnaire — normal, (différencier une série déjà stationnaire reste stationnaire).
+    Mais ADF et KPSS ne sont pas suffisant il faut calculer la std et ACF sur les 2 series
+    donc on a de la sur Differenciation
+
+- ACF / PACF
+    
+    ACF-Brute:
+        - apres le lag 0 toute les barres sont dans la bande.
+        - Donc 2 choses ici, decroisance rapide donc serie stationnaire et aucun pig au lag 12 donc donc pas de saisonnalité annuelle
+
+    PACF-Brute:
+        - la stucture autoregressive est faible, donc un petit ordre p suffit
+        - Globalement ici on peut conclure que ACF et PACF plates -> a série est proche d'un bruit blanc.
+    
+    ACF-Diff:
+        - Ici un gros pic négatif au lag 1 (≈ −0,47) qui sort de la bande : c'est la signature de la sur-différenciation.
+    
+    PACF-Diff:
+        - la PACF montre des spikes négatifs décroissants aux lags 1-2-3 : c'est la trace d'une composante MA(1) induite par la différenciation de trop.
+
+Mois avec le plus grand pic ?
+    Mélange accidents + maladies : sur mars 2010, le top en heures = Maladies de la peau (112 h) ET Traumatismes / causes externes (112 h).
+
+- Previsions (forecasting)
+    Problematique: Anticiper le volume mensuel d'heures d'absence pour la planification RH
+        
+        On va comparer des models baseline, AR MA ARMA ARIMA SARIMA:
+        - Deja on va exclure 2 models SARIMA car on a pas de saisonaliter stable sur le dataset
+        puis on va aussi enlever le modele ARIMA car la serie est deja stationnaire donc pas besoin de modele de differenciation ici.
+
+
+        Deja les baselines models:
+        - moyenne : prédire la moyenne du train pour les 9 mois
+        - naïf : répéter la dernière valeur observée
+        - naïf saisonnier : reprendre la valeur 12 mois avant. 
+        et donc on conclura que un modèle n'aura de la valeur que s'il bat la meilleure de ces baselines. 
+        
+        A battre : 
+                MAE	   RMSE
+        moyenne	71.5	98.5
+
+        La RMSE pour le classement (elle sanctionne les gros écarts, utiles en RH pour éviter les grosses sous-estimations), la MAE pour interpréter l'erreur typique en heures. 
+
+       
+        AR(p):
+            - Ici on peut appliquer AR(p) car la serie est stationnaire et on determine le p avec la PACF qui lui retient le lag le plus significatif (−0,48), d'où AR(2).
+            Autoregression et autocorrelation
+            p=2 | AR(2) -> MAE 70.6 | RMSE 96.3
+        
+        MA(q):
+            - Ici on applique le modele MA(q) sur le mm principe que le AR, avec determination de l'ordre q via l'ACF.
+            Moyenne mobile
+            p=2 | MA(2) -> MAE 70.6 | RMSE 97.7
+        
+        ARMA(p,0,q):
+            - Ici on applique le modele ARMA(p,0,q) et on introduit 2 nouvelles metriques de tests AIC et BIC, on prendra comme reference BIC (ajouter formule vs AIC )car Le BIC pénalise plus (ln T vs 2), donc il est plus parcimonieux et consistant 
+            On viendra ici minimiser la valeur du BIC. et donc le model resortant est ARMA(0,0,2) donc MA(2) 
+
+    On compare les models et on obtient que celui qui minimise la RMSE est  AR(2)
+    Tous mes modèles battent les baselines naïves, mais à peine la moyenne : 96,3 contre 98,5, soit ~2 % de mieux seulement. Autrement dit, prédire intelligemment ne fait guère mieux que prédire la moyenne. C'est la confirmation chiffrée que la série est proche d'un bruit blanc : il n'y a presque pas de dynamique à exploiter.
+
+    AIC et BIC servent à comparer des modèles entre eux. Le problème : un modèle avec plus de paramètres colle toujours mieux aux données (meilleure vraisemblance), mais risque le surapprentissage. AIC et BIC arbitrent ce compromis en pénalisant la complexité
+
+
+- Diagnostic des residus via box jenkins:
+    Un modèle est validé si ce qu'il n'explique pas ressemble à un bruit blanc.
+    Toutes les barres (lags 1 à 12) sont dans la bande de confiance : aucune autocorrélation significative
+    Ils oscillent autour de 0, sans tendance ni motif cyclique, centrés
+    H0 = pas d'autocorrélation jusqu'au lag k. J'obtiens p = 0,94 (lag 6) et p = 0,87 (lag 12), donc bien > 0,05 → on ne rejette pas H0 → les résidus sont compatibles avec un bruit blanc. 
+
+    Donc conclusion le modele a reussi a capter un ptit peu de chose mais comme la serie est tres proche de bruit blanc donc c'etait assez attendue
+    ""Ljung-Box teste-t-il la normalité ? » → « Non, seulement l'autocorrélation.""
+
+    La p-value = probabilité que la loi χ² dépasse le Q observé et Q c'est la stat
+
+- Predictions sur 1 an avec AR(2)
+    Comprendre les resultats on arrive clairement pas a reproduire la tendance car mm avec notre meilleur modele la serie est tres semblable a un bruit blanc et aucne saisonnalite ni correltion entre les donnees a pu etre trouve pour exploiter queconque resultat.
+
+# Partie de Maeva
+
+- Comme le forecasting mensuel n'a rien donné, on analyse l'effet du jour de la semaine (lundi->vendredi, sans weekend). Ce n'est PAS une prévision, c'est une analyse descriptive + tests.
+
+- On regarde l'effet du jour sur la DURÉE des absences (heures), évalué avec Kruskal-Wallis (le χ² viendra ensuite pour la cible binaire "absence longue").
+- Sur le graphe : le NOMBRE d'absences est homogène selon le jour (125-161). C'est la DURÉE MOYENNE qui est élevée le lundi (9,2 h, bien au-dessus de la moyenne globale ~6,9 h) et décroît jusqu'au jeudi (4,4 h), avec un léger rebond le vendredi (5,2 h).
+
+!!!!  la durée d'absence dépend-elle du jour de la semaine ?
+
+Kruskal-Wallis = un test qui compare plusieurs groupes (ici les 5 jours) pour savoir si une variable numérique (les heures d'absence) a la même distribution dans tous les groupes, ou si au moins une diffère.
+
+Donc avec les resultats ici on peut voir que H=10.7 et p=0.030 et p<0.05 donc on rejete H0 donc les 5 grps n'ont pas la mm distribution
+Donc au minimun un jour differe 
+
+Risque d'absence "longue"
+
+Ici notre cible se sont les absences longues donc plus de 8h on va test notre resultat avec χ² d'independance
+
+Je teste si ce risque dépend vraiment du jour, ou si les écarts sont dus au hasard, avec un χ² d'indépendance. H0 : le jour et « absence longue » sont indépendants. Résultat : χ² = 11,52, p = 0,021 < 0,05 → je rejette H0 → le risque d'absence longue dépend du jour.
+
+Le jour est un prédicteur pertinent et coherent, que je garderai comme variable en partie 5
+
+5 classification
+
+Mtn on va vouloir classifier le dataset en 3 poles les absences courte <4h puis 5-8h et enfin >8h pour les plus longues
+
+On va donc utiliser pour ca plusieurs model de classification une baseline qui renvoir le majoritaire une regression logistique, decision tree, SVM, et un Random Forest
+
+Donc voici le tableau de comparaison des models on voit que les models depasse laergement la baseline sur leurs valeurs et que le meilleur model en F1 c'est la regression logistique  et pour la ROC-AUC c'est le SVM 
+
+Pk on a pris macro-F1 en metrique principale et ROC-AUC et bien parce que le dataset est assez desequilibre (62 % low / 29 % mod / 8,5 % high).
+
+parce que c'est la moyenne harmonique en la precission et le recall
+
+pecision -> parmi mes Predictionsde  high cmb sont des vrai hight
+recall -> et parmi les vrai high cmb j'en ai 
+
+pour faire comprendre pk les models on du mal a predire les plus petites rank comme high on peut voir la PCA en 2D et on voit que les classes ce chevauchemt la diffilcute de classification vient des donnees elles memes.
+
+et pour finir on a voulu s'interesser au variable qui ont le plus d'importance sur les absences et c'est avec 10% la charge de travail et l'atteinte d'objectif
